@@ -1,8 +1,12 @@
 ---
 title: "Snow Data Assignment: Web Scraping, Functions, and Iteration"
-author: "Nathan Mueller"
-date: "2-7-2022"
-output: html_document
+author: "Mary Dixon"
+date: "`r format(Sys.time(), '%B %d, %Y')`"
+output: 
+ html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 3
 ---
 
 ```{r setup, include=FALSE}
@@ -10,7 +14,7 @@ library(rvest)
 library(tidyverse)
 library(lubridate)
 library(readxl)
-
+library(pdftools)
 ```
 
 
@@ -23,7 +27,7 @@ R can read html using either rvest, xml, or xml2 packages. Here we are going to 
 
 ### Extract CSV links from webpage
 
-```{r}
+```{r, warning = F}
 site_url <- 'https://snowstudies.org/archived-data/'
 
 #Read the web url
@@ -34,6 +38,7 @@ tables <- webpage %>%
   html_nodes('table') %>%
   magrittr::extract2(3) %>%
   html_table(fill = TRUE)
+
 #That didn't work, so let's try a different approach
 
 #Extract only weblinks and then the URLs!
@@ -41,14 +46,13 @@ links <- webpage %>%
   html_nodes('a') %>%
   .[grepl('24hr',.)] %>%
   html_attr('href')
-
 ```
 
 ## Data Download
 
 ### Download data in a for loop
 
-```{r}
+```{r, warning = F}
 
 #Grab only the name of the file by splitting out on forward slashes
 splits <- str_split_fixed(links,'/',8)
@@ -66,19 +70,15 @@ for(i in 1:3){
 downloaded <- file.exists(file_names)
 
 evaluate <- !all(downloaded)
-
 ```
 
 
 ### Download data in a map
 
-```{r}
-
-#Map version of the same for loop (downloading 3 files)
+```{r, warning = F}
 if(evaluate == T){
   map2(links[1:3],file_names[1:3],download.file)
 }else{print('data already downloaded')}
-
 ```
 
 ## Data read-in 
@@ -90,24 +90,12 @@ if(evaluate == T){
 snow_files <- file_names %>%
   .[!grepl('SG_24',.)] %>%
   .[!grepl('PTSP',.)]
-
-#empty_data <- list()
-
-# snow_data <- for(i in 1:length(snow_files)){
-#   empty_data[[i]] <- read_csv(snow_files[i]) %>%
-#     select(Year,DOY,Sno_Height_M)
-# }
-
-#snow_data_full <- do.call('rbind',empty_data)
-
-#summary(snow_data_full)
 ```
 
 
 ### Read in the data as a map function
 
-```{r}
-
+```{r, message = F}
 our_snow_reader <- function(file){
   name = str_split_fixed(file,'/',2)[,2] %>%
     gsub('_24hr.csv','',.)
@@ -124,7 +112,7 @@ summary(snow_data_full)
 
 ### Plot snow data
 
-```{r}
+```{r, message = F, warning=FALSE}
 snow_yearly <- snow_data_full %>%
   group_by(Year,site) %>%
   summarize(mean_height = mean(Sno_Height_M,na.rm=T))
@@ -138,33 +126,200 @@ ggplot(snow_yearly,aes(x=Year,y=mean_height,color=site)) +
 
 # Assignment:
 
-1. Extract the meteorological data URLs. Here we want you to use the `rvest` package to get the URLs for the `SASP forcing` and `SBSP_forcing` meteorological datasets.
+## Question 1. 
 
-2. Download the meteorological data. Use the `download_file` and `str_split_fixed` commands to download the data and save it in your data folder. You can use a for loop or a map function. 
-
-3. Write a custom function to read in the data and append a site column to the data. 
+Extract the meteorological data URLs. Here we want you to use the `rvest` package to get the URLs for the `SASP forcing` and `SBSP_forcing` meteorological datasets.
 
 ```{r}
+site_url <- 'https://snowstudies.org/archived-data/'
 
-# this code grabs the variable names from the metadata pdf file
+webpage <- read_html(site_url)
+
+forcing_links <- webpage %>%
+  html_nodes('a') %>%
+  .[grepl('forcing',.)] %>%
+  html_attr('href')
+```
+
+
+## Question 2. 
+
+Download the meteorological data. Use the `download_file` and `str_split_fixed` commands to download the data and save it in your data folder. You can use a for loop or a map function. 
+
+```{r, warning = F}
+forcing_splits <- str_split_fixed(forcing_links,'/',8)
+forcing_dataset <- forcing_splits[,8] 
+forcing_file_names <- paste0('data/',forcing_dataset)
+
+for(i in 1:2){
+  download.file(forcing_links[i],destfile=forcing_file_names[i])
+}
+
+forcing_downloaded <- file.exists(forcing_file_names)
+evaluate <- !all(forcing_downloaded)
+```
+
+## Question 3. 
+
+Write a custom function to read in the data and append a site column to the data. 
+
+```{r}
 library(pdftools)
 headers <- pdf_text('https://snowstudies.org/wp-content/uploads/2022/02/Serially-Complete-Metadata-text08.pdf') %>%
   readr::read_lines(.) %>%
   trimws(.) %>%
   str_split_fixed(.,'\\.',2) %>%
   .[,2] %>%
-  .[1:26] %>%
+  .[1:20] %>%
   str_trim(side = "left")
 
+SBB_reader <- function(file){
+  name = str_split_fixed(file,'_',3)[,2]
+  df <- read.delim(file,header = FALSE,skip = 4,sep = "") %>%
+  setNames(headers) %>%
+  mutate(site = name) 
+    
+}
+
+SBB_data_full <- map_dfr(forcing_file_names,SBB_reader)
+
+str(SBB_data_full)
 ```
 
-4. Use the `map` function to read in both meteorological files. Display a summary of your tibble.
 
-5. Make a line plot of mean temp by year by site (using the `air temp [K]` variable). Is there anything suspicious in the plot? Adjust your filtering if needed.
+## Question 4. 
 
-6. Write a function that makes line plots of monthly average temperature at each site for a given year. Use a for loop to make these plots for 2005 to 2010. Are monthly average temperatures at the Senator Beck Study Plot ever warmer than the Snow Angel Study Plot?
+Use the `map` function to read in both meteorological files. Display a summary of your tibble.
+
+```{r}
+SBB_data_full_map <- map_dfr(forcing_file_names,SBB_reader)
+
+summary(SBB_data_full_map)
+```
+
+
+## Question 5. 
+
+Make a line plot of mean temp by year by site (using the `air temp [K]` variable). Is there anything suspicious in the plot? Adjust your filtering if needed.
+
+```{r, message = F}
+SBB_yearly <- SBB_data_full %>% 
+  rename(temp = 10) %>% 
+  group_by(year,site) %>%
+  summarize(mean_temp = mean(temp, na.rm = TRUE))
+
+ggplot(SBB_yearly,aes(x=year,y=mean_temp,color=site)) +
+  geom_line() +
+  labs(x = 'Year', y = 'Mean Temperature') +
+  ggthemes::theme_few() +
+  ggthemes::scale_color_few()
+```
+
+
+## Question 6. 
+
+Write a function that makes line plots of monthly average temperature at each site for a given year. Use a for loop to make these plots for 2005 to 2010. Are monthly average temperatures at the Senator Beck Study Plot ever warmer than the Snow Angel Study Plot?
 Hint: https://ggplot2.tidyverse.org/reference/print.ggplot.html
 
-Bonus: Make a plot of average daily precipitation by day of year (averaged across all available years). Color each site. 
+```{r, message = F, warning = F}
+temp_month <- SBB_data_full %>% 
+  filter(year %in% 2005:2010) %>%
+  group_by(month,site,year) %>%
+  summarize(mean_temp = mean(`air temp [K]`, na.rm = T))
 
-Bonus #2: Use a function and for loop to create yearly plots of precipitation by day of year. Color each site. 
+ggplot(temp_month,aes(x = month,y = mean_temp, color = site)) +
+  geom_line() + 
+  facet_wrap(~year) +
+  labs(x = 'Month', y = 'Average Air Temperature') +
+  ggthemes::theme_few() +
+  ggthemes::scale_color_few()
+
+lineplotter <- function(df){
+  monthdata <- df %>% 
+  filter(theyear==year)%>%
+  filter(year %in% 2005:2010) %>%
+  group_by(month,site,year) %>%
+  summarize(mean_temp = mean(`air temp [K]`, na.rm = T))
+  
+  monthgraph <- ggplot(monthdata,aes(x = month,y = mean_temp, color = site)) +
+  geom_line() +
+  ggtitle(theyear) +
+  labs(x = 'Month', y = 'Average Temperature') +
+  ggthemes::theme_few() + 
+  ggthemes::scale_color_few()
+  
+  print(monthgraph)
+    
+}
+
+years <- c(2005,2006,2007,2008,2009,2010)
+
+for (theyear in years){
+  lineplotter(SBB_data_full)
+}
+```
+
+**The average monthly temperature of the Snow Angel Study Plot is warmer than the Senator Beck Study Plot every year from 2005-2010.**
+
+## Bonus Question 1. 
+
+Make a plot of average daily precipitation by day of year (averaged across all available years). Color each site. 
+
+```{r, message = F}
+full_date <- SBB_data_full %>%
+  mutate(date = make_date(year, month, day))
+
+day_precip <- full_date %>% 
+ group_by(date, site) %>%
+ summarize(mean_precip = mean(`precip [kg m-2 s-1]`, na.rm = TRUE)) %>%
+ mutate(dayyr = lubridate::yday(date))
+
+ggplot(day_precip, aes(x = dayyr,y = mean_precip,color=site)) +
+  geom_line() +
+  labs(x = 'Day of Year', y = 'Mean Precipitation') +
+  ggthemes::theme_few() 
+```
+
+
+## Bonus Question 2.
+
+Use a function and for loop to create yearly plots of precipitation by day of year. Color each site. 
+
+```{r, message = F}
+day_year_precip <- full_date %>% 
+ group_by(date, site, year) %>%
+ summarize(mean_precip = mean(`precip [kg m-2 s-1]`, na.rm = TRUE)) %>%
+ mutate(dayyr = lubridate::yday(date))
+
+ggplot(day_year_precip, aes(x = dayyr,y = mean_precip,color=site)) +
+  geom_line() +
+  facet_wrap(~year) +
+  labs(x = 'Day of Year', y = 'Mean Precipitation') +
+  ggthemes::theme_few() +
+  ggthemes::scale_color_few()
+  
+precip_plotter <- function(df){
+  daydata <- df %>% 
+  filter(theyear==year)%>%
+  group_by(date, site, year) %>%
+  summarize(mean_precip = mean(`precip [kg m-2 s-1]`, na.rm = TRUE)) %>%
+  mutate(dayyr = lubridate::yday(date))
+  
+  daygraph <- ggplot(daydata,aes(x = dayyr,y = mean_precip,color=site)) +
+  geom_line() +
+  ggtitle(theyear) +
+  labs(x = 'Day of Year', y = 'Average Precipitation') +
+  ggthemes::theme_few() + 
+  ggthemes::scale_color_few()
+  
+  print(daygraph)
+    
+}
+
+years <- c(2005,2006,2007,2008,2009,2010)
+
+for (theyear in years){
+  precip_plotter(full_date)
+}
+```
+
